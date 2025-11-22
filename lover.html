@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>To My Love</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            /* 深邃星空背景 */
+            background: linear-gradient(to bottom, #090518, #181336, #2a2448);
+            height: 100vh;
+            font-family: "Microsoft YaHei", sans-serif;
+            touch-action: none; /* 禁止默认触控行为（如滚动），专心玩游戏 */
+        }
+
+        /* 计数器 */
+        #counter-box {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(8px);
+            padding: 8px 15px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.3);
+            font-size: 14px;
+            z-index: 10;
+            pointer-events: none; /* 让点击穿透，不挡手 */
+        }
+
+        #counter-num {
+            font-weight: bold;
+            color: #ffd700;
+            font-size: 18px;
+            margin: 0 5px;
+        }
+
+        /* 结局遮罩 */
+        #ending-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 1s ease;
+        }
+
+        #ending-title {
+            color: #ff69b4;
+            font-size: 1.8rem;
+            margin-bottom: 30px;
+            text-shadow: 0 0 15px #ff69b4;
+            text-align: center;
+            width: 90%;
+        }
+
+        #wishes-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-content: center;
+            gap: 15px;
+            width: 95%;
+            max-height: 80vh;
+            overflow-y: auto; /* 如果屏幕小放不下，允许内容滚动 */
+        }
+
+        .wish-card {
+            background: linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05));
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 1rem;
+            border: 1px solid rgba(255, 215, 0, 0.4);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            opacity: 0;
+            transform: translateY(20px);
+            animation: cardAppear 0.6s forwards;
+            text-align: center;
+        }
+
+        @keyframes cardAppear {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 点击特效 */
+        .click-anim {
+            position: absolute;
+            pointer-events: none;
+            animation: pop 0.6s ease-out forwards;
+            font-size: 30px;
+            z-index: 50;
+        }
+        @keyframes pop {
+            0% { transform: scale(0.5); opacity: 1; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="counter-box">
+        请挑选 10 个最重要的心愿：<span id="counter-num">0</span> / 10
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <div id="ending-overlay">
+        <div id="ending-title">❤️ 答应给你的 10 个未来 ❤️</div>
+        <div id="wishes-container"></div>
+    </div>
+
+<script>
+        // --- 1. 浪漫配置区 (请在这里修改) ---
+        const allMessages = [
+            "YSL口红",
+            "奖励我吃小jio一口x10000",
+            "一封信",
+            "甜品劵（随时）",
+            "你的购物车（第二十一个）",
+            "圣诞小羊",
+            "YSL口红",
+            "足疗卷（给我）",
+            "一只小猫",
+            "小jio专属袜子",
+            "啤酒杯",
+            "给你配置X(嘿嘿嘿）",
+            "耳钉",
+            "情趣内衣x1",
+            "任意要求x1"
+        ];
+        
+        const icons = ["🎁", "🎀", "🧸", "💍", "💎", "🍬", "🔔", "🧦", "👑", "💖", "🎵", "🌟", "🦄", "🌈", "💌"];
+
+        // --- 2. 系统初始化 ---
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let w, h;
+        
+        let gifts = [];
+        let selectedGifts = [];
+        const maxSelection = 10;
+        let isEnding = false;
+
+        function resize() {
+            w = window.innerWidth;
+            h = window.innerHeight;
+            canvas.width = w;
+            canvas.height = h;
+            initGame(); 
+        }
+        window.addEventListener('resize', () => {
+            setTimeout(resize, 200);
+        });
+        
+        // --- 3. 游戏核心逻辑 ---
+
+        // 核心修改：树的垂直间距改为 60，更修长
+        const VERTICAL_SPACING = 60;
+        
+        function initGame() {
+            gifts = [];
+            selectedGifts = [];
+            document.getElementById('counter-num').textContent = "0";
+            
+            const treeBaseX = w / 2;
+            const treeBaseY = h - 100;
+
+            // 智能分布算法：指定每一层放几个礼物，以及放在哪一侧 (新策略，最大化分散)
+            const layersDistribution = [
+                { level: 1, count: 1, position: 'center' }, 
+                { level: 2, count: 1, position: 'left' },  
+                { level: 3, count: 2, position: 'outer' },  // 左右外沿
+                { level: 4, count: 2, position: 'inner' },  // 左右内侧
+                { level: 5, count: 3, position: 'scatter' }, // 左右和中间
+                { level: 6, count: 2, position: 'outer' },  
+                { level: 7, count: 3, position: 'scatter' },
+                { level: 8, count: 1, position: 'right' }
+            ];
+
+            let msgIndex = 0;
+
+            layersDistribution.forEach(layer => {
+                const levelY = treeBaseY - (layer.level * VERTICAL_SPACING) - 30;
+                const levelWidth = 260 - (layer.level * 25); // 稍微加宽一点
+                
+                for(let i = 0; i < layer.count; i++) {
+                    if (msgIndex >= allMessages.length) break;
+                    
+                    let posX = treeBaseX;
+                    const jitter = (Math.random() * 20) + 10; // 随机偏移量
+                    
+                    // --- 分散策略 ---
+                    if (layer.position === 'center') {
+                         posX = treeBaseX + (Math.random() * 10 - 5); // 仅在中心线微调
+                    } else if (layer.position === 'left') {
+                         posX = treeBaseX - (levelWidth / 2) + jitter; // 靠左侧
+                    } else if (layer.position === 'right') {
+                         posX = treeBaseX + (levelWidth / 2) - jitter; // 靠右侧
+                    } else if (layer.position === 'outer' && i < 2) { 
+                        // 外沿：一个在极左，一个在极右
+                        const sideMultiplier = (i % 2 === 0) ? -1 : 1; 
+                        posX = treeBaseX + sideMultiplier * (levelWidth / 2 - 15) + (Math.random() * 10 - 5);
+                    } else if (layer.position === 'inner' && i < 2) {
+                        // 内侧：一个在左内，一个在右内
+                        const sideMultiplier = (i % 2 === 0) ? -1 : 1;
+                        posX = treeBaseX + sideMultiplier * (levelWidth / 4) + (Math.random() * 10 - 5);
+                    } else if (layer.position === 'scatter') {
+                        // 随机散开（用于3个礼物的情况）
+                        if (i === 0) posX = treeBaseX - (levelWidth / 2) + jitter; // 左
+                        if (i === 1) posX = treeBaseX; // 中
+                        if (i === 2) posX = treeBaseX + (levelWidth / 2) - jitter; // 右
+                    }
+                    
+                    gifts.push({
+                        id: msgIndex,
+                        x: posX,
+                        y: levelY + (Math.random() * 20 - 10),
+                        icon: icons[msgIndex % icons.length],
+                        message: allMessages[msgIndex],
+                        selected: false,
+                        swingOffset: Math.random() * Math.PI * 2
+                    });
+                    msgIndex++;
+                }
+            });
+        }
+
+        // --- 4. 绘图逻辑 ---
+        
+        function drawTree() {
+            const x = w/2;
+            const y = h - 100;
+            const levels = 9; // 9层树叶
+            
+            ctx.save();
+            ctx.fillStyle = "#4a2e18";
+            ctx.fillRect(x - 25, y, 50, 60);
+            
+            for (let i = 0; i < levels; i++) {
+                // 确保树叶间距和礼物间距一致
+                let currentY = y - (i * VERTICAL_SPACING); 
+                let width = 260 - (i * 24);
+                
+                if(w < 400) width *= 0.8;
+
+                ctx.beginPath();
+                ctx.moveTo(x, currentY - 65);
+                ctx.quadraticCurveTo(x + width/2, currentY, x + width, currentY + 20);
+                ctx.lineTo(x - width, currentY + 20);
+                ctx.quadraticCurveTo(x - width/2, currentY, x, currentY - 65);
+                
+                let grd = ctx.createLinearGradient(x, currentY - 65, x, currentY + 20);
+                grd.addColorStop(0, '#198754');
+                grd.addColorStop(1, '#0f5132');
+                ctx.fillStyle = grd;
+                
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = "rgba(0,0,0,0.3)";
+                ctx.fill();
+            }
+            
+            drawStar(x, y - (levels * VERTICAL_SPACING) - 40, 25);
+            ctx.restore();
+        }
+
+        function drawStar(x, y, r) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.translate(x, y);
+            ctx.moveTo(0, 0 - r);
+            for (let i = 0; i < 5; i++) {
+                ctx.rotate(Math.PI / 5);
+                ctx.lineTo(0, 0 - (r * 0.5));
+                ctx.rotate(Math.PI / 5);
+                ctx.lineTo(0, 0 - r);
+            }
+            ctx.fillStyle = "#ffd700";
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = "gold";
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawGifts() {
+            ctx.font = "32px Arial"; 
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            
+            gifts.forEach(g => {
+                let scale = g.selected ? 1.3 : 1;
+                let swing = Math.sin(Date.now() / 600 + g.swingOffset) * 6;
+                
+                ctx.save();
+                ctx.translate(g.x, g.y + swing);
+                ctx.scale(scale, scale);
+                
+                if(g.selected) {
+                    ctx.shadowColor = "#ff69b4"; 
+                    ctx.shadowBlur = 25;
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.fillText(g.icon, 0, 0);
+                
+                if(g.selected) {
+                    ctx.font = "18px Arial";
+                    ctx.fillText("❤️", 18, -18);
+                }
+                ctx.restore();
+            });
+        }
+
+        // --- 5. 交互逻辑 (支持触摸) ---
+        
+        const hitRadius = 45; // 保持大点击范围
+
+        function handleInput(clientX, clientY) {
+            if(isEnding) return;
+
+            // 寻找被点击的礼物
+            let clickedGift = null;
+            
+            for(let i = gifts.length - 1; i >= 0; i--) {
+                const g = gifts[i];
+                const dx = clientX - g.x;
+                const dy = clientY - g.y;
+                if(Math.sqrt(dx*dx + dy*dy) < hitRadius) {
+                    clickedGift = g;
+                    break; 
+                }
+            }
+
+            if(clickedGift) {
+                toggleGift(clickedGift);
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => handleInput(e.clientX, e.clientY));
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            const touch = e.touches[0];
+            handleInput(touch.clientX, touch.clientY);
+        }, {passive: false});
+
+        function toggleGift(gift) {
+            if(gift.selected) {
+                gift.selected = false;
+                selectedGifts = selectedGifts.filter(item => item.id !== gift.id);
+            } else {
+                if(selectedGifts.length < maxSelection) {
+                    gift.selected = true;
+                    selectedGifts.push(gift);
+                    createClickEffect(gift.x, gift.y);
+                    if(navigator.vibrate) navigator.vibrate(50);
+                } else {
+                    const counter = document.getElementById('counter-box');
+                    counter.style.background = "rgba(255,0,0,0.5)";
+                    setTimeout(() => counter.style.background = "rgba(255,255,255,0.2)", 200);
+                }
+            }
+            updateUI();
+        }
+
+        function createClickEffect(x, y) {
+            const el = document.createElement('div');
+            el.textContent = "✨";
+            el.className = "click-anim";
+            el.style.left = x + "px";
+            el.style.top = y + "px";
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 600);
+        }
+
+        function updateUI() {
+            const count = selectedGifts.length;
+            document.getElementById('counter-num').textContent = count;
+
+            if(count === maxSelection) {
+                setTimeout(showEnding, 800);
+            }
+        }
+
+        function showEnding() {
+            isEnding = true;
+            const overlay = document.getElementById('ending-overlay');
+            const container = document.getElementById('wishes-container');
+            
+            container.innerHTML = "";
+            selectedGifts.forEach((gift, index) => {
+                const card = document.createElement('div');
+                card.className = 'wish-card';
+                card.style.animationDelay = (index * 0.1) + "s";
+                card.innerHTML = `<span style="font-size:1.5rem">${gift.icon}</span><br>${gift.message}`;
+                container.appendChild(card);
+            });
+
+            overlay.style.display = 'flex';
+            requestAnimationFrame(() => {
+                overlay.style.opacity = 1;
+            });
+        }
+
+        // 雪花
+        const snows = Array.from({length: 50}, () => ({
+            x: Math.random() * window.innerWidth,
+            y: Math.random() * window.innerHeight,
+            r: Math.random() * 2 + 1,
+            speed: Math.random() + 0.5
+        }));
+
+        // 启动
+        resize();
+
+        function animate() {
+            ctx.clearRect(0, 0, w, h);
+            
+            // 画月亮
+            ctx.fillStyle = "#fffce6";
+            ctx.shadowBlur = 40;
+            ctx.shadowColor = "#fffce6";
+            ctx.beginPath();
+            ctx.arc(w * 0.85, h * 0.1, 30, 0, Math.PI*2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            drawTree();
+            drawGifts();
+            
+            // 画雪花
+            ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.beginPath();
+            snows.forEach(s => {
+                ctx.moveTo(s.x, s.y);
+                ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+                s.y += s.speed;
+                if(s.y > h) s.y = -10;
+            });
+            ctx.fill();
+
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+    </script>
+</body>
+</html>
